@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -16,9 +17,6 @@ import (
 	log "gopkg.in/inconshreveable/log15.v2"
 )
 
-// TODO:
-// - support reading API credentials from a file
-
 const (
 	metadataURL = "http://169.254.169.254/latest/meta-data/vm-id"
 	autosnapTag = "autosnap"
@@ -33,8 +31,8 @@ var (
 
 type config struct {
 	APIEndpoint        string `env:"EXOSCALE_API_ENDPOINT" envDefault:"https://api.exoscale.com/compute"`
-	APIKey             string `env:"EXOSCALE_API_KEY,required"`
-	APISecret          string `env:"EXOSCALE_API_SECRET,required"`
+	APIKey             string `env:"EXOSCALE_API_KEY"`
+	APISecret          string `env:"EXOSCALE_API_SECRET"`
 	SnapshotsRetention int
 	DryRun             bool
 	InstanceID         string
@@ -42,6 +40,7 @@ type config struct {
 
 func init() {
 	var (
+		credsFile  string
 		logTo      string
 		logLevel   string
 		logHandler log.Handler
@@ -52,13 +51,15 @@ func init() {
 		dieOnError("initialization failed", "error", err)
 	}
 
-	flag.IntVarP(&cfg.SnapshotsRetention, "snapshot-retention", "r", defaultSnapshotsRetention,
-		"Maximum snapshots retention")
+	flag.StringVarP(&credsFile, "credentials-file", "f", "",
+		"File to read API credentials from")
 	flag.StringVarP(&cfg.InstanceID, "instance-id", "i", "",
 		"ID of the instance to snapshot (disables instance-local lookup)")
+	flag.IntVarP(&cfg.SnapshotsRetention, "snapshot-retention", "r", defaultSnapshotsRetention,
+		"Maximum snapshots retention")
 	flag.StringVarP(&logTo, "log", "l", "-",
 		`File to log activity to, "-" to log to stdout or ":syslog" to log to syslog`)
-	flag.StringVarP(&logLevel, "log-level", "L", "info", "Logging level")
+	flag.StringVarP(&logLevel, "log-level", "L", "info", "Logging level, supported values: error,info,debug")
 	flag.BoolVarP(&cfg.DryRun, "dry-run", "d", false, "Run in dry-run mode (read-only)")
 
 	flag.ErrHelp = errors.New("") // Don't print "pflag: help requested" when the user invokes the help flags
@@ -107,6 +108,13 @@ API credentials file format:
 	}
 
 	log.Root().SetHandler(log.LvlFilterHandler(logLevelHandler, logHandler))
+
+	if credsFile != "" {
+		apiCredentialsFromFile(credsFile)
+	}
+	if cfg.APIKey == "" || cfg.APISecret == "" {
+		dieOnError("missing API credentials")
+	}
 
 	exo = egoscale.NewClient(cfg.APIEndpoint, cfg.APIKey, cfg.APISecret)
 }
@@ -251,6 +259,41 @@ func scrambleString(s string) string {
 		}
 
 		return string(scrambled)
+	}
+}
+
+// apiCredentialsFromFile parses a file containing the API credentials file and sets the configuration API credentials
+// if successful.
+func apiCredentialsFromFile(path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		dieOnError("unable to open credentials file", "error", err)
+	}
+	defer f.Close()
+
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		if err := s.Err(); err != nil {
+			dieOnError("unable to parse credentials file", "error", err)
+		}
+		line := s.Text()
+
+		parts := strings.Split(line, "=")
+		if len(parts) != 2 {
+			dieOnError("invalid credentials line format (expected key=value)", "line", line)
+		}
+		k, v := parts[0], parts[1]
+
+		switch strings.ToLower(k) {
+		case "api_key":
+			cfg.APIKey = v
+
+		case "api_secret":
+			cfg.APISecret = v
+
+		default:
+			dieOnError("invalid credentials file key", "key", k)
+		}
 	}
 }
 
