@@ -17,7 +17,7 @@ builds:
       - amd64
 
     hooks:
-      pre: make
+      pre: make -d
 
 archives:
   - id: windows
