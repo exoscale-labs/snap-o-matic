@@ -208,7 +208,7 @@ func takeSnapshot(ctx context.Context, instanceVolumeID *egoscale.UUID) {
 		Tags:         []egoscale.ResourceTag{{Key: autosnapTag, Value: "true"}},
 	}); err != nil {
 		// Cleanup attempt: don't leave our snapshot dangling untagged
-		exo.BooleanRequestWithContext(ctx, &egoscale.DeleteSnapshot{ID: instanceSnapshot.ID}) // nolint:errcheck
+		_ = exo.BooleanRequestWithContext(ctx, &egoscale.DeleteSnapshot{ID: instanceSnapshot.ID}) // nolint:errcheck
 		dieOnError("unable to tag new snapshot", "error", err)
 	}
 

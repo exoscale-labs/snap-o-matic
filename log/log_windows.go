@@ -7,6 +7,7 @@ import (
 	"os"
 )
 
+// Returns the log handler based on the log configuration string. This function is platform-dependent.
 func GetLogHandler(logTo string) log.Handler {
 	var logHandler log.Handler
 	var err error

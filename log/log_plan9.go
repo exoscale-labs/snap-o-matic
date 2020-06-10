@@ -7,6 +7,7 @@ import (
 	"os"
 )
 
+// Returns the log handler based on the log configuration string. This function is platform-dependent.
 func GetLogHandler(logTo string) log.Handler {
 	var logHandler log.Handler
 	var err error
@@ -14,7 +15,7 @@ func GetLogHandler(logTo string) log.Handler {
 	case "-", "":
 		logHandler = log.StdoutHandler
 	case ":syslog":
-		log.Error("syslog is not supported on Windows")
+		log.Error("syslog is not supported on Plan9")
 		os.Exit(1)
 
 	default:
