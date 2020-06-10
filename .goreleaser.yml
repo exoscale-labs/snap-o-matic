@@ -4,8 +4,6 @@ builds:
   - binary: snap-o-matic
     env:
       - CGO_ENABLED=0
-    flags:
-      - -mod=vendor
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}
     goos:
@@ -15,9 +13,6 @@ builds:
 
     goarch:
       - amd64
-
-    hooks:
-      pre: make -d
 
 archives:
   - id: windows
