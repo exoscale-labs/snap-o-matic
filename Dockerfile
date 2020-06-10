@@ -1,4 +1,5 @@
 FROM golang AS build
+ENV GO111MODULE=on
 RUN mkdir -p /go/src/github.com/exoscale-labs/snap-o-matic
 WORKDIR /go/src/github.com/exoscale-labs/snap-o-matic/
 COPY . /go/src/github.com/exoscale-labs/snap-o-matic

@@ -17,7 +17,6 @@ test:
 	go test -timeout 30s -covermode=atomic -coverprofile=cover.out ./...
 
 build: fmtcheck vet test
-	go mod vendor
 	go build -o build/snap-o-matic main.go
 
 build-docker:
@@ -25,9 +24,7 @@ build-docker:
 	docker run \
 		--rm \
 		${USER_NS} \
-		-v "${PWD}":/go/src/github.com/exoscale-labs/snap-o-matic \
 		-w /go/src/github.com/exoscale-labs/snap-o-matic \
-		-e GO111MODULE=on \
 		-e GOOS=${GOOS} \
 		golang:${GOVER} \
 		make build
