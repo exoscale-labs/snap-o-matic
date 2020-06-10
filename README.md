@@ -3,7 +3,8 @@
 ```
 *** WARNING ***
 
-This is experimental software and may not work as intended or may not be continued in the future. Use at your own risk. 
+This is experimental software and may not work as intended or may not be continued in the future.
+Use at your own risk. 
 ```
 
 snap-o-matic is an automatic snapshot tool for Exoscale Compute instances.
@@ -11,26 +12,14 @@ snap-o-matic is an automatic snapshot tool for Exoscale Compute instances.
 ## Installation
 
 You can install it either by downloading the binaries from the
-[releases section](https://github.com/exoscale-labs/snap-o-matic/releases) or as a
-[Docker image](https://hub.docker.com/repository/docker/exoscale-labs/snap-o-matic).
-
-**You should configure snap-o-matic to run from a cronjob.**  
-
-## Usage in Docker
-
-You can schedule a **cron job** to run the following command:
-
-```
-docker run --rm exoscale-labs/snap-o-matic \
-    -e EXOSCALE_API_KEY=exoscale-api-key-here \
-    -e EXOSCALE_API_SECRET=exoscale-api-secret-here
-```
-
-**Warning!** This will create a single snapshot. You **must** configure this command in a cronjob.
+[releases section](https://github.com/exoscale-labs/snap-o-matic/releases).
 
 ## Usage as a binary
 
-When using it outside of a container environment you can run the `snap-o-matic` program with the following parameters:
+**You should configure snap-o-matic to run from a cronjob.**  Each run of snap-o-matic creates a single snapshot and
+cleans up old ones.
+
+You can run the `snap-o-matic` program with the following parameters:
 
  - `-f FILENAME` or `--credentials-file FILENAME`: File to read API credentials from
  - `-d` or `--dry-run`: Run in dry-run mode (do not actually make a snapshot)
