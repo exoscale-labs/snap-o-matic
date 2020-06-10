@@ -1,5 +1,11 @@
 # snap-o-matic - Automatic Exoscale Compute instance volume snapshot
 
+```
+*** WARNING ***
+
+This is experimental software and may not work as intended or may not be continued in the future. Use at your own risk. 
+```
+
 snap-o-matic is an automatic snapshot tool for Exoscale Compute instances.
 
 ## Installation

@@ -65,6 +65,11 @@ func init() {
 	flag.ErrHelp = errors.New("") // Don't print "pflag: help requested" when the user invokes the help flags
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "snap-o-matic - Automatic Exoscale Compute instance volume snapshot")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "*** WARNING ***")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "This is experimental software and may not work as intended or may not be continued in the future. Use at your own risk.")
+		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Usage:")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, `
