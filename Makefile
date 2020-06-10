@@ -10,15 +10,19 @@ fmt:
 fmtcheck:
 	([ -z "$(shell gofmt -d $(GOFILES))" ]) || (echo "Source is unformatted, please execute make format"; exit 1)
 
-vet:
+tidy:
+	go mod tidy
+
+vendor: tidy
+	go vendor
+
+vet: vendor
 	go vet ./...
 
-test:
+test: vendor
 	go test -timeout 30s -covermode=atomic -coverprofile=cover.out ./...
 
-build: fmtcheck vet test
-	go mod tidy
-	go mod vendor
+build: vendor fmtcheck vet test
 	go build -o build/snap-o-matic main.go
 
 build-docker:
