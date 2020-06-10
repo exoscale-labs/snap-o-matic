@@ -17,6 +17,7 @@ test:
 	go test -timeout 30s -covermode=atomic -coverprofile=cover.out ./...
 
 build: fmtcheck vet test
+    go mod vendor
 	go build -o build/snap-o-matic main.go
 
 build-docker:
