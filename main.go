@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log/syslog"
 	"net/http"
 	"os"
 	"strings"
 
 	"github.com/caarlos0/env/v6"
+	egoScaleLog "github.com/exoscale-labs/snap-o-matic/log"
 	"github.com/exoscale/egoscale"
 	flag "github.com/spf13/pflag"
 	log "gopkg.in/inconshreveable/log15.v2"
@@ -64,15 +64,15 @@ func init() {
 
 	flag.ErrHelp = errors.New("") // Don't print "pflag: help requested" when the user invokes the help flags
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "snap-o-matic - Automatic Exoscale Compute instance volume snapshot")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "*** WARNING ***")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "This is experimental software and may not work as intended or may not be continued in the future. Use at your own risk.")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Usage:")
+		_, _ = fmt.Fprintln(os.Stderr, "snap-o-matic - Automatic Exoscale Compute instance volume snapshot")
+		_, _ = fmt.Fprintln(os.Stderr, "")
+		_, _ = fmt.Fprintln(os.Stderr, "*** WARNING ***")
+		_, _ = fmt.Fprintln(os.Stderr, "")
+		_, _ = fmt.Fprintln(os.Stderr, "This is experimental software and may not work as intended or may not be continued in the future. Use at your own risk.")
+		_, _ = fmt.Fprintln(os.Stderr, "")
+		_, _ = fmt.Fprintln(os.Stderr, "Usage:")
 		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, `
+		_, _ = fmt.Fprintf(os.Stderr, `
 Supported environment variables:
   EXOSCALE_API_ENDPOINT    Exoscale Compute API endpoint (default "https://api.exoscale.com/compute")
   EXOSCALE_API_KEY         Exoscale API key
@@ -94,23 +94,7 @@ API credentials file format:
 		dieOnError("invalid value for option --log-level: %s", err)
 	}
 
-	switch logTo {
-	case "-", "":
-		logHandler = log.StdoutHandler
-
-	case ":syslog":
-		if logHandler, err = log.SyslogHandler(
-			syslog.LOG_INFO|syslog.LOG_LOCAL0,
-			"snap-o-matic",
-			log.LogfmtFormat()); err != nil {
-			dieOnError("unable to initialize syslog logging", "error", err)
-		}
-
-	default:
-		if logHandler, err = log.FileHandler(logTo, log.LogfmtFormat()); err != nil {
-			dieOnError("unable to initialize file logging", "error", err)
-		}
-	}
+	logHandler = egoScaleLog.GetLogHandler(logTo)
 
 	log.Root().SetHandler(log.LvlFilterHandler(logLevelHandler, logHandler))
 

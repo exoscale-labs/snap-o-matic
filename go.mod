@@ -1,4 +1,4 @@
-module snap-o-matic
+module github.com/exoscale-labs/snap-o-matic
 
 go 1.13
 
