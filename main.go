@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	metadataURL = "http://169.254.169.254/latest/meta-data/vm-id"
+	metadataURL = "http://metadata.exoscale.com/latest/meta-data/vm-id"
 
 	defaultSnapshotsRetention = 7
 	defaultEndpoint           = v3.CHGva2
