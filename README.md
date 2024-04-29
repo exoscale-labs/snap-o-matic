@@ -7,6 +7,16 @@ This is experimental software and may not work as intended or may not be continu
 Use at your own risk. 
 ```
 
+```
+*** WARNING ***
+
+Unlike previous versions of snap-o-matic, v0.02 and later will not preserve user-created snapshots.
+snap-o-matic will delete the oldest snapshots during rotation and it will not differentiate
+between snapshots created by snap-o-matic or by the user.
+```
+
+`
+
 snap-o-matic is an automatic snapshot tool for Exoscale Compute instances.
 
 ## Installation
