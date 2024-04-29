@@ -5,61 +5,110 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
-	"github.com/caarlos0/env/v6"
-	egoScaleLog "github.com/exoscale-labs/snap-o-matic/log"
-	"github.com/exoscale/egoscale"
 	flag "github.com/spf13/pflag"
-	log "gopkg.in/inconshreveable/log15.v2"
+
+	v3 "github.com/exoscale/egoscale/v3"
+	"github.com/exoscale/egoscale/v3/credentials"
 )
 
 const (
 	metadataURL = "http://169.254.169.254/latest/meta-data/vm-id"
-	autosnapTag = "autosnap"
 
 	defaultSnapshotsRetention = 7
-)
-
-var (
-	exo *egoscale.Client
-	cfg config
+	defaultEndpoint           = v3.CHGva2
 )
 
 type config struct {
-	APIEndpoint        string `env:"EXOSCALE_API_ENDPOINT" envDefault:"https://api.exoscale.com/compute"`
-	APIKey             string `env:"EXOSCALE_API_KEY"`
-	APISecret          string `env:"EXOSCALE_API_SECRET"`
+	APIEndpoint        v3.Endpoint
 	SnapshotsRetention int
 	DryRun             bool
-	InstanceID         string
+	InstanceID         InstanceID
+	CredentialsFile    string
+	LogLevel           string
 }
 
-func init() {
-	var (
-		credsFile  string
-		logTo      string
-		logLevel   string
-		logHandler log.Handler
-		err        error
-	)
+func exitWithErr(err error) {
+	slog.Error("", "err", err)
+	os.Exit(-1)
+}
 
-	if err := env.Parse(&cfg); err != nil {
-		dieOnError("initialization failed", "error", err)
+func main() {
+	cfg := config{
+		APIEndpoint: getAPIEndpoint(),
 	}
 
-	flag.StringVarP(&credsFile, "credentials-file", "f", "",
+	parseFlags(&cfg)
+
+	switch cfg.LogLevel {
+	case "debug":
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	case "error":
+		slog.SetLogLoggerLevel(slog.LevelError)
+	default:
+		slog.SetLogLoggerLevel(slog.LevelInfo)
+	}
+
+	var creds *credentials.Credentials
+	if cfg.CredentialsFile != "" {
+		var err error
+		creds, err = apiCredentialsFromFile(cfg.CredentialsFile)
+		if err != nil {
+			exitWithErr(err)
+		}
+	} else {
+		creds = credentials.NewEnvCredentials()
+	}
+
+	client, err := v3.NewClient(creds, v3.ClientOptWithEndpoint(cfg.APIEndpoint))
+	if err != nil {
+		exitWithErr(err)
+	}
+
+	ctx := context.Background()
+
+	if err := snap(ctx, client, &cfg); err != nil {
+		exitWithErr(err)
+	}
+}
+
+type InstanceID struct {
+	UUID v3.UUID
+}
+
+func (instanceID *InstanceID) String() string {
+	return instanceID.UUID.String()
+}
+
+func (instanceID *InstanceID) Type() string {
+	return "v3.UUID"
+}
+
+func (instanceID *InstanceID) Set(v string) error {
+	parsedID, err := v3.ParseUUID(v)
+	if err != nil {
+		return fmt.Errorf("failed to parse instance ID: %w", err)
+	}
+
+	instanceID.UUID = parsedID
+
+	return nil
+}
+
+func parseFlags(cfg *config) {
+	flag.StringVarP(&cfg.CredentialsFile, "credentials-file", "f", "",
 		"File to read API credentials from")
-	flag.StringVarP(&cfg.InstanceID, "instance-id", "i", "",
+	flag.VarP(&cfg.InstanceID, "instance-id", "i",
 		"ID of the instance to snapshot (disables instance-local lookup)")
 	flag.IntVarP(&cfg.SnapshotsRetention, "snapshot-retention", "r", defaultSnapshotsRetention,
 		"Maximum snapshots retention")
-	flag.StringVarP(&logTo, "log", "l", "-",
-		`File to log activity to, "-" to log to stdout or ":syslog" to log to syslog`)
-	flag.StringVarP(&logLevel, "log-level", "L", "info", "Logging level, supported values: error,info,debug")
+	flag.StringVarP(&cfg.LogLevel, "log-level", "L", "info", "Logging level, supported values: error,info,debug")
 	flag.BoolVarP(&cfg.DryRun, "dry-run", "d", false, "Run in dry-run mode (read-only)")
 
 	flag.ErrHelp = errors.New("") // Don't print "pflag: help requested" when the user invokes the help flags
@@ -74,7 +123,7 @@ func init() {
 		flag.PrintDefaults()
 		_, _ = fmt.Fprintf(os.Stderr, `
 Supported environment variables:
-  EXOSCALE_API_ENDPOINT    Exoscale Compute API endpoint (default "https://api.exoscale.com/compute")
+  EXOSCALE_API_ENDPOINT    Exoscale Compute API endpoint (default %q)
   EXOSCALE_API_KEY         Exoscale API key
   EXOSCALE_API_SECRET      Exoscale API secret
 
@@ -84,209 +133,161 @@ API credentials file format:
 
     api_key=EXOabcdef0123456789abcdef01
     api_secret=AbCdEfGhIjKlMnOpQrStUvWxYz-0123456789aBcDef
-`)
+`, defaultEndpoint)
 	}
 
 	flag.Parse()
-
-	logLevelHandler, err := log.LvlFromString(logLevel)
-	if err != nil {
-		dieOnError("invalid value for option --log-level: %s", err)
-	}
-
-	logHandler = egoScaleLog.GetLogHandler(logTo)
-
-	log.Root().SetHandler(log.LvlFilterHandler(logLevelHandler, logHandler))
-
-	if credsFile != "" {
-		apiCredentialsFromFile(credsFile)
-	}
-	if cfg.APIKey == "" || cfg.APISecret == "" {
-		dieOnError("missing API credentials")
-	}
-
-	exo = egoscale.NewClient(cfg.APIEndpoint, cfg.APIKey, cfg.APISecret)
-}
-
-func main() {
-	var ctx context.Context = context.Background()
-
-	if cfg.InstanceID == "" {
-		log.Debug("looking up instance ID via metadata service")
-
-		res, err := http.Get(metadataURL)
-		if err != nil {
-			dieOnError("unable to find instance ID", "error", err)
-		}
-		defer res.Body.Close()
-
-		body, err := ioutil.ReadAll(res.Body)
-		if err != nil {
-			dieOnError("unable to read metadata service request reply", "error", err)
-		}
-		cfg.InstanceID = string(body)
-	}
-
-	log.Debug("settings",
-		"api_endpoint", cfg.APIEndpoint,
-		"api_key", cfg.APIKey,
-		"api_secret", scrambleString(cfg.APISecret),
-		"instance_id", cfg.InstanceID,
-		"max_snapshots_retention", cfg.SnapshotsRetention,
-		"dry-run", cfg.DryRun,
-	)
-
-	res, err := exo.GetWithContext(ctx, &egoscale.ListVolumes{
-		VirtualMachineID: egoscale.MustParseUUID(cfg.InstanceID),
-	})
-	if err != nil {
-		dieOnError("unable to find instance storage volumes", "error", err)
-	}
-	instanceVolume := res.(*egoscale.Volume)
-
-	rotateSnapshots(ctx, instanceVolume.ID)
-	takeSnapshot(ctx, instanceVolume.ID)
 }
 
 // rotateSnapshots lists the existing instance snapshots and deletes the oldest ones in order to remain under the
 // specified retention threshold.
-func rotateSnapshots(ctx context.Context, instanceVolumeID *egoscale.UUID) {
-	res, err := exo.ListWithContext(ctx, &egoscale.ListSnapshots{VolumeID: instanceVolumeID})
+// WARNING: unlike previous versions of snap-o-matic, this will not preserve user-created snapshots
+func rotateSnapshots(ctx context.Context, client *v3.Client, cfg *config) error {
+	snapshots, err := client.ListSnapshots(ctx)
 	if err != nil {
-		dieOnError("unable to list snapshots", "error", err)
+		return fmt.Errorf("failed to list snapshots: %w", err)
 	}
 
+	// sort in ascending order, oldest snapshot first
+	slices.SortFunc(snapshots.Snapshots, func(a, b v3.Snapshot) int {
+		return -a.CreatedAT.Compare(b.CreatedAT)
+	})
+
 	sc := 0
-	for _, s := range res {
-		snapshot := s.(*egoscale.Snapshot)
-
-		// Our snapshots are tagged with a specific key, so we don't delete the snapshots a user could have taken
-		// manually
-		if !isAutosnapshot(snapshot) || strings.ToLower(snapshot.State) != "backedup" {
-			continue
-		}
-
-		log.Debug("found snapshot", "id", snapshot.ID.String())
+	for _, snapshot := range snapshots.Snapshots {
+		slog.Info("found snapshot", "id", snapshot.ID.String(), "created-at", snapshot.CreatedAT)
 
 		if sc++; sc < cfg.SnapshotsRetention {
 			continue
 		}
 
-		// Snapshots are returned by the API sorted in reverse chronological order, so from the moment we exceed the
-		// maximum snapshot retention threshold we can safely delete the remaining snapshots as they are the oldest
 		if cfg.DryRun {
-			log.Info("[DRY-RUN] deleting snapshot", "id", snapshot.ID.String())
+			slog.Info("[DRY-RUN] deleting snapshot", "id", snapshot.ID.String())
+
 			continue
 		}
 
-		log.Info("deleting snapshot", "id", snapshot.ID.String())
-		if err := exo.BooleanRequestWithContext(ctx, &egoscale.DeleteSnapshot{ID: snapshot.ID}); err != nil {
-			dieOnError("unable to delete snapshot", "error", err)
+		slog.Info("deleting snapshot", "id", snapshot.ID.String(), "created-at", snapshot.CreatedAT)
+		op, err := client.DeleteSnapshot(ctx, snapshot.ID)
+		if err != nil {
+			return fmt.Errorf("failed to delete snapshot: %w", err)
+		}
+
+		slog.Info("waiting for operation to succeed", "operation-id", op.ID, "command", op.Reference.Command)
+		_, err = client.Wait(ctx, op, v3.OperationStateSuccess)
+		if err != nil {
+			return fmt.Errorf("delete operation of snapshot did not succeed: %w", err)
 		}
 	}
+
+	return nil
 }
 
-// takeSnapshot takes a new instance snapshot and tags it.
-func takeSnapshot(ctx context.Context, instanceVolumeID *egoscale.UUID) {
+// takeSnapshot takes a new instance snapshot
+func takeSnapshot(ctx context.Context, client *v3.Client, cfg *config) error {
 	if cfg.DryRun {
-		log.Info("[DRY-RUN] creating snapshot")
-		return
+		slog.Info("[DRY-RUN] creating snapshot")
+
+		return nil
 	}
 
-	log.Info("creating snapshot")
-	res, err := exo.RequestWithContext(ctx, &egoscale.CreateSnapshot{
-		VolumeID: instanceVolumeID,
-	})
+	slog.Info("creating snapshot")
+	op, err := client.CreateSnapshot(ctx, cfg.InstanceID.UUID)
 	if err != nil {
-		dieOnError("unable to create new snapshot", "error", err)
-	}
-	instanceSnapshot := res.(*egoscale.Snapshot)
-
-	if _, err := exo.RequestWithContext(ctx, &egoscale.CreateTags{
-		ResourceType: instanceSnapshot.ResourceType(),
-		ResourceIDs:  []egoscale.UUID{*(instanceSnapshot.ID)},
-		Tags:         []egoscale.ResourceTag{{Key: autosnapTag, Value: "true"}},
-	}); err != nil {
-		// Cleanup attempt: don't leave our snapshot dangling untagged
-		_ = exo.BooleanRequestWithContext(ctx, &egoscale.DeleteSnapshot{ID: instanceSnapshot.ID}) // nolint:errcheck
-		dieOnError("unable to tag new snapshot", "error", err)
+		return fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
-	log.Debug("snapshot created successfully", "id", instanceSnapshot.ID.String())
+	slog.Info("waiting for operation to succeed", "operation-id", op.ID, "command", op.Reference.Command)
+
+	op, err = client.Wait(ctx, op, v3.OperationStateSuccess)
+	if err != nil {
+		return fmt.Errorf("delete operation of snapshot did not succeed: %w", err)
+	}
+
+	slog.Info("snapshot created successfully", "snapshot-id", op.Reference.ID)
+
+	return nil
 }
 
-// isAutosnapshot returns true if the snapshot s is an automatic snapshot.
-func isAutosnapshot(s *egoscale.Snapshot) bool {
-	for _, tag := range s.Tags {
-		if tag.Key == autosnapTag {
-			return true
+func snap(ctx context.Context, client *v3.Client, cfg *config) error {
+	if cfg.InstanceID.UUID == "" {
+		slog.Info("looking up instance ID via metadata service")
+
+		res, err := http.Get(metadataURL)
+		if err != nil {
+			return fmt.Errorf("unable to find instance ID: %w", err)
 		}
-	}
+		defer res.Body.Close()
 
-	return false
-}
-
-// scrambleString returns a scrambled version of s, with all characters except the first and the last replaced with
-// "*".
-func scrambleString(s string) string {
-	n := len(s)
-	switch n {
-	case 0:
-		return ""
-
-	case 1:
-		return "*"
-
-	default:
-		scrambled := make([]byte, n)
-		for i := range s {
-			if i == 0 || i == n-1 {
-				scrambled[i] = s[i]
-				continue
-			}
-			scrambled[i] = '*'
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return fmt.Errorf("unable to read metadata service request reply: %w", err)
 		}
 
-		return string(scrambled)
+		instanceID, err := v3.ParseUUID(string(body))
+		if err != nil {
+			return fmt.Errorf("failed to parse instance ID: %w", err)
+		}
+		cfg.InstanceID.UUID = instanceID
+
+		slog.Info("defaulting to host instance", "instance-id", cfg.InstanceID)
 	}
+
+	slog.Info("settings", "config", *cfg)
+
+	if err := rotateSnapshots(ctx, client, cfg); err != nil {
+		return err
+	}
+
+	return takeSnapshot(ctx, client, cfg)
 }
 
-// apiCredentialsFromFile parses a file containing the API credentials file and sets the configuration API credentials
-// if successful.
-func apiCredentialsFromFile(path string) {
+func getAPIEndpoint() v3.Endpoint {
+	envApiEndpoint := os.Getenv("EXOSCALE_API_ENDPOINT")
+	if envApiEndpoint != "" {
+		return v3.Endpoint(envApiEndpoint)
+	}
+
+	return defaultEndpoint
+}
+
+// apiCredentialsFromFile parses a file containing the API credentials.
+func apiCredentialsFromFile(path string) (*credentials.Credentials, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		dieOnError("unable to open credentials file", "error", err)
+		return nil, fmt.Errorf("unable to open credentials file: %w", err)
 	}
 	defer f.Close()
 
+	apiKey := ""
+	apiSecret := ""
+
 	s := bufio.NewScanner(f)
+	lineNr := 0
 	for s.Scan() {
 		if err := s.Err(); err != nil {
-			dieOnError("unable to parse credentials file", "error", err)
+			return nil, fmt.Errorf("unable to parse credentials file: %w", err)
 		}
+		lineNr++
 		line := s.Text()
 
 		parts := strings.Split(line, "=")
 		if len(parts) != 2 {
-			dieOnError("invalid credentials line format (expected key=value)", "line", line)
+			return nil, fmt.Errorf("invalid credentials line format on line %d (expected key=value)", lineNr)
 		}
 		k, v := parts[0], parts[1]
 
 		switch strings.ToLower(k) {
 		case "api_key":
-			cfg.APIKey = v
+			apiKey = v
 
 		case "api_secret":
-			cfg.APISecret = v
+			apiSecret = v
 
 		default:
-			dieOnError("invalid credentials file key", "key", k)
+			return nil, fmt.Errorf("invalid credentials file key on line %d", lineNr)
 		}
 	}
-}
 
-func dieOnError(msg string, ctx ...interface{}) {
-	log.Error(msg, ctx...)
-	os.Exit(1)
+	return credentials.NewStaticCredentials(apiKey, apiSecret), nil
 }
