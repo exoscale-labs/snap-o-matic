@@ -6,6 +6,7 @@ on:
 
 jobs:
   goreleaser:
+    disabled: true
     runs-on: ubuntu-latest
     steps:
       -

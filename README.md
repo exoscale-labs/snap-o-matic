@@ -7,6 +7,16 @@ This is experimental software and may not work as intended or may not be continu
 Use at your own risk. 
 ```
 
+```
+*** WARNING ***
+
+Unlike previous versions of snap-o-matic, v0.02 and later will not preserve user-created snapshots.
+snap-o-matic will delete the oldest snapshots during rotation and it will not differentiate
+between snapshots created by snap-o-matic or by the user.
+```
+
+`
+
 snap-o-matic is an automatic snapshot tool for Exoscale Compute instances.
 
 ## Installation
@@ -24,7 +34,6 @@ You can run the `snap-o-matic` program with the following parameters:
  - **`-f FILENAME` or `--credentials-file FILENAME`:** File to read API credentials from.
  - **`-d` or `--dry-run`:** Run in dry-run mode (do not actually make a snapshot).
  - **`-i INSTANCE_ID` or `--instance-id INSTANCE_ID`:** The instance to back up. If not provided the instance snap-o-matic is running on will be backed up.
- - **`-l LOG_FILE` or `--log LOG_FILE`:** File to log activity to, "-" to log to stdout or ":syslog" to log to syslog (default `-`).
  - **`-L LOG_LEVEL` or `--log-level LOG_LEVEL`:** Logging level, supported values: `error`,`info`,`debug` (default `info`).
  - **`-r NUMBER` or `--snapshot-retention NUMBER`:** Maximum snapshots to keep (default 7).
 
