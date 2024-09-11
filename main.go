@@ -5,9 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -16,11 +14,10 @@ import (
 
 	v3 "github.com/exoscale/egoscale/v3"
 	"github.com/exoscale/egoscale/v3/credentials"
+	exometa "github.com/exoscale/egoscale/v3/metadata"
 )
 
 const (
-	metadataURL = "http://metadata.exoscale.com/latest/meta-data/vm-id"
-
 	defaultSnapshotsRetention = 7
 	defaultEndpoint           = v3.CHGva2
 )
@@ -155,6 +152,10 @@ func rotateSnapshots(ctx context.Context, client *v3.Client, cfg *config) error 
 
 	sc := 0
 	for _, snapshot := range snapshots.Snapshots {
+		if snapshot.Instance.ID != cfg.InstanceID.UUID {
+			continue
+		}
+
 		slog.Info("found snapshot", "id", snapshot.ID.String(), "created-at", snapshot.CreatedAT)
 
 		if sc++; sc < cfg.SnapshotsRetention {
@@ -213,18 +214,12 @@ func snap(ctx context.Context, client *v3.Client, cfg *config) error {
 	if cfg.InstanceID.UUID == "" {
 		slog.Info("looking up instance ID via metadata service")
 
-		res, err := http.Get(metadataURL)
+		resp, err := exometa.Get(ctx, exometa.InstanceID)
 		if err != nil {
-			return fmt.Errorf("unable to find instance ID: %w", err)
-		}
-		defer res.Body.Close()
-
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			return fmt.Errorf("unable to read metadata service request reply: %w", err)
+			return fmt.Errorf("failed to parse instance ID: %w", err)
 		}
 
-		instanceID, err := v3.ParseUUID(string(body))
+		instanceID, err := v3.ParseUUID(resp)
 		if err != nil {
 			return fmt.Errorf("failed to parse instance ID: %w", err)
 		}

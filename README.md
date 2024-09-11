@@ -10,6 +10,7 @@ Use at your own risk.
 ```
 *** WARNING ***
 
+Since API v2 not support tags/labels on Snapshot:
 Unlike previous versions of snap-o-matic, v0.02 and later will not preserve user-created snapshots.
 snap-o-matic will delete the oldest snapshots during rotation and it will not differentiate
 between snapshots created by snap-o-matic or by the user.
