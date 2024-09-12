@@ -3,7 +3,7 @@ module github.com/exoscale-labs/snap-o-matic
 go 1.22.2
 
 require (
-	github.com/exoscale/egoscale/v3 v3.1.2
+	github.com/exoscale/egoscale/v3 v3.1.4
 	github.com/spf13/pflag v1.0.5
 )
 
